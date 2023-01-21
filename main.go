@@ -25,7 +25,7 @@ func main() {
 
 	api := wows.NewWowsAPI(key, server)
 
-	db, err := gorm.Open(sqlite.Open("wows-recruiting-bo.db"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("wows-recruiting-bot.db"), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect database")
 	}
