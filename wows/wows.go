@@ -3,9 +3,10 @@ package wows
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming/wows"
-	"github.com/kakwa/clan_monitoring/model"
+	"github.com/kakwa/wows-recruiting-bot/model"
 	"github.com/pemistahl/lingua-go"
 	"net/http"
 	"time"
@@ -109,7 +110,7 @@ func (wowsAPI *WowsAPI) FillShipMapping() error {
 	respSize := 9999
 	pageNo := 1
 	for respSize != 0 {
-		res, err := client.Wows.EncyclopediaShips(context.Background(), wargaming.RealmEu, &wows.EncyclopediaShipsOptions{
+		res, _, err := client.Wows.EncyclopediaShips(context.Background(), wargaming.RealmEu, &wows.EncyclopediaShipsOptions{
 			Fields: []string{"ship_id", "tier"},
 			PageNo: &pageNo,
 		})
@@ -132,11 +133,12 @@ func (wowsAPI *WowsAPI) FillShipMapping() error {
 
 }
 
-func (wowsAPI *WowsAPI) GetPlayerT10Count(realm wargaming.Realm, playerId int) (int, error) {
+func (wowsAPI *WowsAPI) GetPlayerT10Count(playerId int) (int, error) {
+	realm := wowsAPI.Realm
 	client := wowsAPI.client
-	var ret int
+	ret := 0
 	inGarage := "1"
-	res, err := client.Wows.ShipsStats(context.Background(), realm, playerId, &wows.ShipsStatsOptions{
+	res, _, err := client.Wows.ShipsStats(context.Background(), realm, playerId, &wows.ShipsStatsOptions{
 		Fields:   []string{"ship_id"},
 		InGarage: &inGarage,
 	})
@@ -165,6 +167,55 @@ func (wowsAPI *WowsAPI) GetPlayerT10Count(realm wargaming.Realm, playerId int) (
 	return ret, nil
 }
 
+func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model.Player, error) {
+	realm := wowsAPI.Realm
+	client := wowsAPI.client
+	var ret []*model.Player
+	res, err := client.Wows.AccountInfo(context.Background(), realm, playerIds, &wows.AccountInfoOptions{
+		Fields: []string{"account_id", "created_at", "hidden_profile", "last_battle_time", "logout_at", "nickname", "statistics.pvp.wins", "statistics.pvp.battles", "statistics.battles"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, playerData := range res {
+		if playerData == nil {
+			continue
+		}
+
+		T10Count := 0
+		if withT10 {
+			T10Count, err = wowsAPI.GetPlayerT10Count(*playerData.AccountId)
+			if err != nil {
+				T10Count = 0
+			}
+		}
+		var battles int
+		var win int
+		if playerData.Statistics == nil || playerData.Statistics.Pvp == nil || playerData.Statistics.Pvp.Battles == nil || playerData.Statistics.Pvp.Wins == nil {
+			battles = 1
+			win = 0
+			fmt.Printf("no stats %d\n", *playerData.AccountId)
+		} else {
+			battles = *playerData.Statistics.Pvp.Battles
+			win = *playerData.Statistics.Pvp.Wins
+		}
+		player := &model.Player{
+			ID:                  *playerData.AccountId,
+			Nick:                *playerData.Nickname,
+			AccountCreationDate: playerData.CreatedAt.Time,
+			LastBattleDate:      playerData.LastBattleTime.Time,
+			LastLogoutDate:      playerData.LogoutAt.Time,
+			Battles:             battles,
+			WinRate:             float64(win) / float64(battles),
+			NumberT10:           T10Count,
+			HiddenProfile:       *playerData.HiddenProfile,
+		}
+		ret = append(ret, player)
+	}
+	return ret, nil
+}
+
 func (wowsAPI *WowsAPI) ListAllClansIds() ([]int, error) {
 	client := wowsAPI.client
 	var ret []int
@@ -174,9 +225,10 @@ func (wowsAPI *WowsAPI) ListAllClansIds() ([]int, error) {
 		res, err := client.Wows.ClansList(context.Background(), EURealm, &wows.ClansListOptions{
 			Limit:  &limit,
 			PageNo: &page,
+			Fields: []string{"clan_id"},
 		})
 		if err != nil {
-			continue
+			return nil, err
 		}
 		for _, clan := range res {
 			ret = append(ret, *clan.ClanId)
@@ -185,6 +237,7 @@ func (wowsAPI *WowsAPI) ListAllClansIds() ([]int, error) {
 		if len(res) == 0 {
 			break
 		}
+		break
 	}
 	return ret, nil
 }
@@ -193,7 +246,7 @@ func (wowsAPI *WowsAPI) GetClansDetails(clanIDs []int) (ret []*model.Clan, err e
 	client := wowsAPI.client
 	clanInfo, err := client.Wows.ClansInfo(context.Background(), EURealm, clanIDs, &wows.ClansInfoOptions{
 		Extra:  []string{"members"},
-		Fields: []string{"description", "name", "tag", "clan_id", "created_at", "is_clan_disbanded", "updated_at"},
+		Fields: []string{"description", "name", "tag", "clan_id", "created_at", "is_clan_disbanded", "updated_at", "members_ids", "leader_id"},
 	})
 	if err != nil {
 		return nil, err
@@ -221,16 +274,23 @@ func (wowsAPI *WowsAPI) GetClansDetails(clanIDs []int) (ret []*model.Clan, err e
 			// Otherwise, use the clan name (but that's quite inaccurate
 			DescDataLanguage = "ko"
 			language, _ = wowsAPI.Detector.DetectLanguageOf(*clan.Name)
-			ret = append(ret, &model.Clan{
-				ID:           *clan.ClanId,
-				Name:         *clan.Name,
-				Tag:          *clan.Tag,
-				Language:     language.String(),
-				LanguageData: DescDataLanguage,
-			})
 		}
-		// TODO
-		// Build the lists of clan models
+		var players []*model.Player
+		for _, memberId := range clan.MembersIds {
+			players = append(players, &model.Player{ID: memberId})
+		}
+		ret = append(ret, &model.Clan{
+			ID:           *clan.ClanId,
+			Name:         *clan.Name,
+			Tag:          *clan.Tag,
+			Language:     language.String(),
+			LanguageData: DescDataLanguage,
+			//Players:      players,
+			PlayerIDs:    clan.MembersIds,
+			PlayerID:     *clan.LeaderId,
+			CreationDate: clan.CreatedAt.Time,
+			UpdatedDate:  clan.UpdatedAt.Time,
+		})
 
 	}
 	return ret, nil
