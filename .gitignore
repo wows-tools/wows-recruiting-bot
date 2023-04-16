@@ -43,3 +43,5 @@ yarn-error.log*
 
 static/*
 !static/resources/*
+
+wows-recruiting-bot.db
