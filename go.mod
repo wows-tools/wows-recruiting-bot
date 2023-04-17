@@ -19,6 +19,7 @@ require (
 	golang.org/x/exp v0.0.0-20221106115401-f9659909a136 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gorm.io/driver/sqlite v1.4.4 // indirect
+	moul.io/zapgorm2 v1.3.0 // indirect
 )
 
 replace github.com/IceflowRE/go-wargaming/v3 v3.0.0 => github.com/kakwa/go-wargaming/v3 v3.0.0-20230110234559-d51726223eaf

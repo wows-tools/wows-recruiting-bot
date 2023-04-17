@@ -17,5 +17,6 @@ type Player struct {
 	Battles             int       `gorm:"index"`
 	WinRate             float64   `gorm:"index"`
 	HiddenProfile       bool      `gorm:"index"`
+	Tracked             bool      `gorm:"index"`
 	Clan                Clan
 }

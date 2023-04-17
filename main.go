@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"github.com/kakwa/wows-recruiting-bot/wows"
+	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+	"moul.io/zapgorm2"
 	"os"
 )
 
@@ -22,10 +23,25 @@ func main() {
 
 	key := os.Getenv("WOWS_WOWSAPIKEY")
 	server := os.Getenv("WOWS_REALM")
+	debug := os.Getenv("WOWS_DEBUG")
 
-	api := wows.NewWowsAPI(key, server)
+	var loggerConfig zap.Config
+	if debug == "true" {
+		loggerConfig = zap.NewDevelopmentConfig()
+	} else {
+		loggerConfig = zap.NewProductionConfig()
+	}
 
-	db, err := gorm.Open(sqlite.Open("wows-recruiting-bot.db"), &gorm.Config{})
+	logger, err := loggerConfig.Build()
+	if err != nil {
+		fmt.Printf("Error initializing logger: %s\n", err.Error())
+		os.Exit(-1)
+	}
+	defer logger.Sync()
+	glogger := zapgorm2.New(logger)
+	sugar := logger.Sugar()
+
+	db, err := gorm.Open(sqlite.Open("wows-recruiting-bot.db"), &gorm.Config{Logger: glogger})
 	if err != nil {
 		panic("failed to connect database")
 	}
@@ -34,41 +50,13 @@ func main() {
 		&model.Player{},
 		&model.Clan{},
 	}
+
 	// Migrate the schema
 	db.AutoMigrate(Schemas...)
+	api := wows.NewWowsAPI(key, server, sugar.With("component", "wows_api"), db)
 	api.FillShipMapping()
-	fmt.Printf("Listing all clans\n")
-	clanIDs, err := api.ListAllClansIds()
+	err = api.ScrapAllClans()
 	if err != nil {
 		fmt.Printf(err.Error())
 	}
-	fmt.Printf("%v\n", clanIDs)
-	for {
-		clanDetails, err := api.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
-		if err != nil {
-			fmt.Printf(err.Error())
-		}
-
-		fmt.Printf("%d\n", len(clanDetails))
-		for _, clan := range clanDetails {
-			fmt.Printf("%s\n", clan.Tag)
-			db.Clauses(clause.OnConflict{UpdateAll: true}).Create(clan)
-			fmt.Printf("%v\n", clan.PlayerIDs)
-			players, err := api.GetPlayerDetails(clan.PlayerIDs, false)
-			if err != nil {
-				fmt.Printf("failed to get Players | %s\n", err.Error())
-			}
-			for _, player := range players {
-				player.ClanID = clan.ID
-				db.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
-			}
-		}
-
-		if len(clanIDs) <= 100 {
-			break
-		} else {
-			clanIDs = clanIDs[100:]
-		}
-	}
-
 }

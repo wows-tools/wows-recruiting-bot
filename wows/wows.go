@@ -3,11 +3,14 @@ package wows
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming/wows"
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"github.com/pemistahl/lingua-go"
+	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"net/http"
 	"time"
 )
@@ -41,9 +44,18 @@ type WowsAPI struct {
 	ShipMapping map[int]int
 	Realm       wargaming.Realm
 	Detector    lingua.LanguageDetector
+	Logger      *zap.SugaredLogger
+	DB          *gorm.DB
 }
 
-func NewWowsAPI(key string, realm string) *WowsAPI {
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func NewWowsAPI(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB) *WowsAPI {
 	languages := []lingua.Language{
 		lingua.English,
 		lingua.German,
@@ -102,10 +114,13 @@ func NewWowsAPI(key string, realm string) *WowsAPI {
 		ShipMapping: make(map[int]int),
 		Detector:    detector,
 		Realm:       wReam,
+		Logger:      logger,
+		DB:          db,
 	}
 }
 
 func (wowsAPI *WowsAPI) FillShipMapping() error {
+	wowsAPI.Logger.Debugf("Start filling ship mapping")
 	client := wowsAPI.client
 	respSize := 9999
 	pageNo := 1
@@ -129,11 +144,13 @@ func (wowsAPI *WowsAPI) FillShipMapping() error {
 			wowsAPI.ShipMapping[*ship.ShipId] = *ship.Tier
 		}
 	}
+	wowsAPI.Logger.Debugf("Finish filling ship mapping")
 	return nil
 
 }
 
 func (wowsAPI *WowsAPI) GetPlayerT10Count(playerId int) (int, error) {
+	wowsAPI.Logger.Debugf("Start getting T10 ship count for player %d", playerId)
 	realm := wowsAPI.Realm
 	client := wowsAPI.client
 	ret := 0
@@ -164,10 +181,12 @@ func (wowsAPI *WowsAPI) GetPlayerT10Count(playerId int) (int, error) {
 			ret++
 		}
 	}
+	wowsAPI.Logger.Debugf("Finish getting T10 ship count for player %d", playerId)
 	return ret, nil
 }
 
 func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model.Player, error) {
+	wowsAPI.Logger.Debugf("Start getting player details for players [%v]", playerIds)
 	realm := wowsAPI.Realm
 	client := wowsAPI.client
 	var ret []*model.Player
@@ -195,7 +214,7 @@ func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*mode
 		if playerData.Statistics == nil || playerData.Statistics.Pvp == nil || playerData.Statistics.Pvp.Battles == nil || playerData.Statistics.Pvp.Wins == nil {
 			battles = 1
 			win = 0
-			fmt.Printf("no stats %d\n", *playerData.AccountId)
+			wowsAPI.Logger.Debugf("no stats for player %s[%d]", *playerData.Nickname, *playerData.AccountId)
 		} else {
 			battles = *playerData.Statistics.Pvp.Battles
 			win = *playerData.Statistics.Pvp.Wins
@@ -210,9 +229,11 @@ func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*mode
 			WinRate:             float64(win) / float64(battles),
 			NumberT10:           T10Count,
 			HiddenProfile:       *playerData.HiddenProfile,
+			Tracked:             false,
 		}
 		ret = append(ret, player)
 	}
+	wowsAPI.Logger.Debugf("Finish getting player details for players [%v]", playerIds)
 	return ret, nil
 }
 
@@ -290,8 +311,45 @@ func (wowsAPI *WowsAPI) GetClansDetails(clanIDs []int) (ret []*model.Clan, err e
 			PlayerID:     *clan.LeaderId,
 			CreationDate: clan.CreatedAt.Time,
 			UpdatedDate:  clan.UpdatedAt.Time,
+			Tracked:      false,
 		})
 
 	}
 	return ret, nil
+}
+
+func (wowsAPI *WowsAPI) ScrapAllClans() (err error) {
+	wowsAPI.Logger.Debugf("Start scrapping all clans")
+	clanIDs, err := wowsAPI.ListAllClansIds()
+	if err != nil {
+		return err
+	}
+	for {
+		clanDetails, err := wowsAPI.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
+		if err != nil {
+			return err
+		}
+
+		for _, clan := range clanDetails {
+			wowsAPI.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(clan)
+			wowsAPI.Logger.Debugf("Start getting player details for clan [%s]", clan.Tag)
+			players, err := wowsAPI.GetPlayerDetails(clan.PlayerIDs, false)
+			if err != nil {
+				wowsAPI.Logger.Infof("Failed to get Players: %s", err.Error())
+			}
+			for _, player := range players {
+				player.ClanID = clan.ID
+				wowsAPI.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
+			}
+			wowsAPI.Logger.Debugf("Finish getting player details for clan '%s'", clan.Tag)
+		}
+
+		if len(clanIDs) <= 100 {
+			break
+		} else {
+			clanIDs = clanIDs[100:]
+		}
+	}
+	wowsAPI.Logger.Debugf("Finish scrapping all clans")
+	return nil
 }
