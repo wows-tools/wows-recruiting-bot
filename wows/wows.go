@@ -186,7 +186,7 @@ func (wowsAPI *WowsAPI) GetPlayerT10Count(playerId int) (int, error) {
 }
 
 func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model.Player, error) {
-	wowsAPI.Logger.Debugf("Start getting player details for players [%v]", playerIds)
+	wowsAPI.Logger.Debugf("Start getting player details for players %v", playerIds)
 	realm := wowsAPI.Realm
 	client := wowsAPI.client
 	var ret []*model.Player
@@ -233,7 +233,7 @@ func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*mode
 		}
 		ret = append(ret, player)
 	}
-	wowsAPI.Logger.Debugf("Finish getting player details for players [%v]", playerIds)
+	wowsAPI.Logger.Debugf("Finish getting player details for players %v", playerIds)
 	return ret, nil
 }
 
