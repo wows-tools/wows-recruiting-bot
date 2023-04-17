@@ -341,7 +341,7 @@ func (wowsAPI *WowsAPI) ScrapAllClans() (err error) {
 				player.ClanID = clan.ID
 				wowsAPI.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
 			}
-			wowsAPI.Logger.Debugf("Finish getting player details for clan '%s'", clan.Tag)
+			wowsAPI.Logger.Debugf("Finish getting player details for clan [%s]", clan.Tag)
 		}
 
 		if len(clanIDs) <= 100 {
