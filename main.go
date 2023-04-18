@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/kakwa/wows-recruiting-bot/model"
-	"github.com/kakwa/wows-recruiting-bot/wows"
+	"github.com/kakwa/wows-recruiting-bot/controller"
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"gorm.io/driver/sqlite"
@@ -53,7 +53,7 @@ func main() {
 
 	// Migrate the schema
 	db.AutoMigrate(Schemas...)
-	api := wows.NewWowsAPI(key, server, sugar.With("component", "wows_api"), db)
+	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db)
 	api.FillShipMapping()
 	err = api.ScrapAllClans()
 	if err != nil {
