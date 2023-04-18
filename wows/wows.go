@@ -55,6 +55,20 @@ func min[T constraints.Ordered](a, b T) T {
 	return b
 }
 
+func difference(a, b []int) []int {
+	mb := make(map[int]struct{}, len(b))
+	for _, x := range b {
+		mb[x] = struct{}{}
+	}
+	var diff []int
+	for _, x := range a {
+		if _, found := mb[x]; !found {
+			diff = append(diff, x)
+		}
+	}
+	return diff
+}
+
 func NewWowsAPI(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB) *WowsAPI {
 	languages := []lingua.Language{
 		lingua.English,
@@ -237,29 +251,23 @@ func (wowsAPI *WowsAPI) GetPlayerDetails(playerIds []int, withT10 bool) ([]*mode
 	return ret, nil
 }
 
-func (wowsAPI *WowsAPI) ListAllClansIds() ([]int, error) {
+func (wowsAPI *WowsAPI) ListClansIds(page int) ([]int, error) {
+	wowsAPI.Logger.Debugf("Start listing clans page[%d]", page)
 	client := wowsAPI.client
 	var ret []int
 	limit := 100
-	page := 1
-	for {
-		res, err := client.Wows.ClansList(context.Background(), EURealm, &wows.ClansListOptions{
-			Limit:  &limit,
-			PageNo: &page,
-			Fields: []string{"clan_id"},
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, clan := range res {
-			ret = append(ret, *clan.ClanId)
-		}
-		page++
-		if len(res) == 0 {
-			break
-		}
-		break
+	res, err := client.Wows.ClansList(context.Background(), EURealm, &wows.ClansListOptions{
+		Limit:  &limit,
+		PageNo: &page,
+		Fields: []string{"clan_id"},
+	})
+	if err != nil {
+		return nil, err
 	}
+	for _, clan := range res {
+		ret = append(ret, *clan.ClanId)
+	}
+	wowsAPI.Logger.Debugf("Finish listing clans page[%d]", page)
 	return ret, nil
 }
 
@@ -320,11 +328,13 @@ func (wowsAPI *WowsAPI) GetClansDetails(clanIDs []int) (ret []*model.Clan, err e
 
 func (wowsAPI *WowsAPI) ScrapAllClans() (err error) {
 	wowsAPI.Logger.Debugf("Start scrapping all clans")
-	clanIDs, err := wowsAPI.ListAllClansIds()
-	if err != nil {
-		return err
-	}
+	page := 1
 	for {
+		clanIDs, err := wowsAPI.ListClansIds(page)
+		if err != nil {
+			return err
+		}
+
 		clanDetails, err := wowsAPI.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
 		if err != nil {
 			return err
@@ -344,11 +354,10 @@ func (wowsAPI *WowsAPI) ScrapAllClans() (err error) {
 			wowsAPI.Logger.Debugf("Finish getting player details for clan [%s]", clan.Tag)
 		}
 
-		if len(clanIDs) <= 100 {
+		if len(clanIDs) < 100 {
 			break
-		} else {
-			clanIDs = clanIDs[100:]
 		}
+		page++
 	}
 	wowsAPI.Logger.Debugf("Finish scrapping all clans")
 	return nil
