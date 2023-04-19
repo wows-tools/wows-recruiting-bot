@@ -204,19 +204,28 @@ func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model
 	realm := ctl.Realm
 	client := ctl.client
 	var ret []*model.Player
-	res, err := client.Wows.AccountInfo(context.Background(), realm, playerIds, &wows.AccountInfoOptions{
+	players, err := client.Wows.AccountInfo(context.Background(), realm, playerIds, &wows.AccountInfoOptions{
 		Fields: []string{"account_id", "created_at", "hidden_profile", "last_battle_time", "logout_at", "nickname", "statistics.pvp.wins", "statistics.pvp.battles", "statistics.battles"},
 	})
 	if err != nil {
 		return nil, err
 	}
+	clanPlayers, err := client.Wows.ClansAccountinfo(context.Background(), realm, playerIds, &wows.ClansAccountinfoOptions{})
+	if err != nil {
+		return nil, err
+	}
 
-	for _, playerData := range res {
+	for _, playerData := range players {
 		if playerData == nil {
 			continue
 		}
 
 		T10Count := 0
+		JoinDate := time.Now()
+		if clanPlayer, ok := clanPlayers[*playerData.AccountId]; ok {
+			JoinDate = clanPlayer.JoinedAt.Time
+		}
+
 		if withT10 {
 			T10Count, err = ctl.GetPlayerT10Count(*playerData.AccountId)
 			if err != nil {
@@ -244,6 +253,7 @@ func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model
 			NumberT10:           T10Count,
 			HiddenProfile:       *playerData.HiddenProfile,
 			Tracked:             false,
+			ClanJoinDate:        JoinDate,
 		}
 		ret = append(ret, player)
 	}
@@ -350,6 +360,13 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 				if len(diff) != 0 {
 					for _, player := range diff {
 						ctl.Logger.Infof("player '%s' left clan [%s] (language: %s)", player.Nick, clan.Tag, clan.Language)
+						prevClanEntry := &model.PreviousClan{
+							JoinDate:  player.ClanJoinDate,
+							LeaveDate: time.Now(),
+							ClanID:    clanPrev.ID,
+							PlayerID:  player.ID,
+						}
+						ctl.DB.Create(prevClanEntry)
 					}
 				}
 				ctl.DB.Model(&clanPrev).Association("Players").Delete(diff)

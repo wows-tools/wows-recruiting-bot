@@ -18,5 +18,7 @@ type Player struct {
 	HiddenProfile       bool      `gorm:"index"`
 	Tracked             bool      `gorm:"index"`
 	ClanID              int       `gorm:"index"`
+	ClanJoinDate        time.Time
 	Clan                *Clan
+	PreviousClans       []PreviousClan
 }

@@ -48,6 +48,7 @@ func main() {
 
 	Schemas := []interface{}{
 		&model.Player{},
+		&model.PreviousClan{},
 		&model.Clan{},
 	}
 
