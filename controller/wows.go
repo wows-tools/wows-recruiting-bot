@@ -55,14 +55,14 @@ func min[T constraints.Ordered](a, b T) T {
 	return b
 }
 
-func difference(a, b []int) []int {
-	mb := make(map[int]struct{}, len(b))
+func difference(a, b []*model.Player) []*model.Player {
+	mb := make(map[int]*model.Player, len(b))
 	for _, x := range b {
-		mb[x] = struct{}{}
+		mb[x.ID] = x
 	}
-	var diff []int
+	var diff []*model.Player
 	for _, x := range a {
-		if _, found := mb[x]; !found {
+		if _, found := mb[x.ID]; !found {
 			diff = append(diff, x)
 		}
 	}
@@ -287,23 +287,26 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 			continue
 		}
 
-		var language lingua.Language
-		var DescDataLanguage = "ko"
-		if clan.Description != nil && len(*clan.Description) > len(*clan.Name) {
-			// We have a long enough description, trying to deduce the language from that
+		language := lingua.Unknown
 
-			// It's a bit too short to get a good detection
-			if len(*clan.Description) < 20 {
-				DescDataLanguage = "ko"
-			} else {
-				DescDataLanguage = "ok"
-			}
-			language, _ = ctl.Detector.DetectLanguageOf(*clan.Description)
-		} else {
-			// Otherwise, use the clan name (but that's quite inaccurate
-			DescDataLanguage = "ko"
-			language, _ = ctl.Detector.DetectLanguageOf(*clan.Name)
+		clanString := *clan.Name
+
+		// If we have a description, add it to try detect the language
+		if clan.Description != nil {
+			clanString = clanString + " " + *clan.Description
 		}
+
+		confidenceValues := ctl.Detector.ComputeLanguageConfidenceValues(clanString)
+		for _, elem := range confidenceValues {
+			// If we have a decent enough confidence, we pick this language
+			// Otherwise we leave it as unknown
+			if elem.Value() > 0.50 {
+				ctl.Logger.Debugf("Clan [%s] language detection %s: %.2f", *clan.Tag, elem.Language(), elem.Value())
+				language = elem.Language()
+				break
+			}
+		}
+
 		var players []*model.Player
 		for _, memberId := range clan.MembersIds {
 			players = append(players, &model.Player{ID: memberId})
@@ -313,8 +316,7 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 			Name:         *clan.Name,
 			Tag:          *clan.Tag,
 			Language:     language.String(),
-			LanguageData: DescDataLanguage,
-			//Players:      players,
+			Players:      players,
 			PlayerIDs:    clan.MembersIds,
 			PlayerID:     *clan.LeaderId,
 			CreationDate: clan.CreatedAt.Time,
@@ -326,23 +328,38 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 	return ret, nil
 }
 
-func (ctl *Controller) ScrapAllClans() (err error) {
-	ctl.Logger.Debugf("Start scrapping all clans")
-	page := 1
+func (ctl *Controller) UpdateClans(clanIDs []int) error {
 	for {
-		clanIDs, err := ctl.ListClansIds(page)
-		if err != nil {
-			return err
-		}
-
 		clanDetails, err := ctl.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
 		if err != nil {
 			return err
 		}
 
 		for _, clan := range clanDetails {
+			var clanPrev model.Clan
+			clanPrev.ID = clan.ID
+			err = ctl.DB.Preload("Players").First(&clanPrev).Error
+
+			if err == nil {
+				prevPlayersList := make([]int, len(clanPrev.Players))
+				ctl.Logger.Debugf("Clan [%s] already present, computing player diff", clan.Tag)
+				for i, player := range clanPrev.Players {
+					prevPlayersList[i] = player.ID
+				}
+				diff := difference(clanPrev.Players, clan.Players)
+				if len(diff) != 0 {
+					for _, player := range diff {
+						ctl.Logger.Infof("player '%s' left clan [%s] (language: %s)", player.Nick, clan.Tag, clan.Language)
+					}
+				}
+				ctl.DB.Model(&clanPrev).Association("Players").Delete(diff)
+			}
+
+			// Upsert the clan informations
 			ctl.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(clan)
 			ctl.Logger.Debugf("Start getting player details for clan [%s]", clan.Tag)
+
+			// Upsert the players information
 			players, err := ctl.GetPlayerDetails(clan.PlayerIDs, false)
 			if err != nil {
 				ctl.Logger.Infof("Failed to get Players: %s", err.Error())
@@ -353,12 +370,32 @@ func (ctl *Controller) ScrapAllClans() (err error) {
 			}
 			ctl.Logger.Debugf("Finish getting player details for clan [%s]", clan.Tag)
 		}
+		if len(clanIDs) < 100 {
+			break
+		}
+		clanIDs = clanIDs[100:]
+	}
+	return nil
+}
 
+func (ctl *Controller) ScrapAllClans() (err error) {
+	ctl.Logger.Infof("Start scrapping all clans")
+	page := 1
+	for {
+		ctl.Logger.Infof("Start scrapping clan page [%d]", page)
+		clanIDs, err := ctl.ListClansIds(page)
+		if err != nil {
+			return err
+		}
+
+		ctl.UpdateClans(clanIDs)
+
+		ctl.Logger.Infof("Finish scrapping clan page [%d]", page)
 		if len(clanIDs) < 100 {
 			break
 		}
 		page++
 	}
-	ctl.Logger.Debugf("Finish scrapping all clans")
+	ctl.Logger.Infof("Finish scrapping all clans")
 	return nil
 }

@@ -12,11 +12,11 @@ type Player struct {
 	AccountCreationDate time.Time `gorm:"index"`
 	LastBattleDate      time.Time `gorm:"index"`
 	LastLogoutDate      time.Time `gorm:"index"`
-	ClanID              int       `gorm:"index"`
 	NumberT10           int       `gorm:"index"`
 	Battles             int       `gorm:"index"`
 	WinRate             float64   `gorm:"index"`
 	HiddenProfile       bool      `gorm:"index"`
 	Tracked             bool      `gorm:"index"`
-	Clan                Clan
+	ClanID              int       `gorm:"index"`
+	Clan                *Clan
 }

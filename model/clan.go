@@ -11,7 +11,6 @@ type Clan struct {
 	Name         string
 	Tag          string `gorm:"index"`
 	Language     string `gorm:"index"`
-	LanguageData string
 	CreationDate time.Time
 	UpdatedDate  time.Time
 	Players      []*Player

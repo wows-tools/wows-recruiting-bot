@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/kakwa/wows-recruiting-bot/model"
 	"github.com/kakwa/wows-recruiting-bot/controller"
+	"github.com/kakwa/wows-recruiting-bot/model"
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"gorm.io/driver/sqlite"
