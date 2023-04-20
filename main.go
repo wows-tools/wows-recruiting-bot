@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/kakwa/wows-recruiting-bot/common"
 	"github.com/kakwa/wows-recruiting-bot/controller"
 	"github.com/kakwa/wows-recruiting-bot/model"
+	"github.com/kakwa/wows-recruiting-bot/bot"
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"gorm.io/driver/sqlite"
@@ -24,6 +26,7 @@ func main() {
 	key := os.Getenv("WOWS_WOWSAPIKEY")
 	server := os.Getenv("WOWS_REALM")
 	debug := os.Getenv("WOWS_DEBUG")
+	botToken := os.Getenv("WOWS_DISCORD_TOKEN")
 
 	var loggerConfig zap.Config
 	if debug == "true" {
@@ -55,7 +58,12 @@ func main() {
 
 	// Migrate the schema
 	db.AutoMigrate(Schemas...)
-	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db)
+
+	ch := make(chan common.PlayerExitNotification)
+	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db, ch)
+	disbot := bot.NewWowsBot(botToken, sugar.With("component", "discord_bot"), db, ch)
+	go disbot.StartBot()
+
 	api.FillShipMapping()
 	err = api.ScrapAllClans()
 	if err != nil {

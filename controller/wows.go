@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming"
 	"github.com/IceflowRE/go-wargaming/v3/wargaming/wows"
+	"github.com/kakwa/wows-recruiting-bot/common"
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"github.com/pemistahl/lingua-go"
 	"go.uber.org/zap"
@@ -40,12 +41,13 @@ func WowsRealm(realmStr string) (wargaming.Realm, error) {
 }
 
 type Controller struct {
-	client      *wargaming.Client
-	ShipMapping map[int]int
-	Realm       wargaming.Realm
-	Detector    lingua.LanguageDetector
-	Logger      *zap.SugaredLogger
-	DB          *gorm.DB
+	client         *wargaming.Client
+	ShipMapping    map[int]int
+	Realm          wargaming.Realm
+	Detector       lingua.LanguageDetector
+	Logger         *zap.SugaredLogger
+	DB             *gorm.DB
+	PlayerExitChan chan common.PlayerExitNotification
 }
 
 func min[T constraints.Ordered](a, b T) T {
@@ -69,7 +71,7 @@ func difference(a, b []*model.Player) []*model.Player {
 	return diff
 }
 
-func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB) *Controller {
+func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification) *Controller {
 	languages := []lingua.Language{
 		lingua.English,
 		lingua.German,
@@ -124,12 +126,13 @@ func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm
 		return nil
 	}
 	return &Controller{
-		client:      wargaming.NewClient(key, &wargaming.ClientOptions{HTTPClient: &http.Client{Timeout: 10 * time.Second}}),
-		ShipMapping: make(map[int]int),
-		Detector:    detector,
-		Realm:       wReam,
-		Logger:      logger,
-		DB:          db,
+		client:         wargaming.NewClient(key, &wargaming.ClientOptions{HTTPClient: &http.Client{Timeout: 10 * time.Second}}),
+		ShipMapping:    make(map[int]int),
+		Detector:       detector,
+		Realm:          wReam,
+		Logger:         logger,
+		DB:             db,
+		PlayerExitChan: playerExitChan,
 	}
 }
 
@@ -366,6 +369,7 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 							ClanID:    clanPrev.ID,
 							PlayerID:  player.ID,
 						}
+						ctl.PlayerExitChan <- common.PlayerExitNotification{Player: *player, Clan: clanPrev}
 						ctl.DB.Create(prevClanEntry)
 					}
 				}
