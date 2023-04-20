@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kakwa/wows-recruiting-bot/common"
 	"github.com/kakwa/wows-recruiting-bot/model"
@@ -41,6 +42,7 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 		bot.Logger.Errorf("error opening connection,", err)
 		return nil
 	}
+	bot.Discord = dg
 
 	return &bot
 }
@@ -52,8 +54,20 @@ func (bot *WowsBot) StartBot() {
 			filters := make([]model.Filter, 0)
 			bot.DB.Find(&filters)
 			for _, filter := range filters {
-				bot.Logger.Infof("Sending discord message <player '%s' leftclan [%s]> on channel '%s'", change.Player.Nick, change.Clan.Tag, filter.DiscordChannelID)
-				//bot.Discord.ChannelMessageSend(filter.DiscordChannelID, "player '" + change.Player.Nick + "' left clan [" + change.Clan.Tag + "]")
+				if change.Clan.Language == "French" {
+					msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
+						change.Player.Nick,
+						change.Clan.Tag,
+						change.Player.WinRate,
+						change.Player.Battles,
+						change.Player.LastBattleDate.String(),
+						change.Player.ID,
+						change.Player.Nick,
+					)
+
+					bot.Logger.Infof("Sending discord message <%s> on channel '%s'", msg, change.Player.Nick, change.Clan.Tag, filter.DiscordChannelID)
+					bot.Discord.ChannelMessageSend(filter.DiscordChannelID, msg)
+				}
 			}
 		}
 	}

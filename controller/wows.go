@@ -370,7 +370,6 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 							PlayerID:  player.ID,
 						}
 						ctl.PlayerExitChan <- common.PlayerExitNotification{Player: *player, Clan: clanPrev}
-						time.Sleep(10 * time.Second)
 						ctl.DB.Create(prevClanEntry)
 					}
 				}

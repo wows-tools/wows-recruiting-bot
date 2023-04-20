@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -61,15 +62,18 @@ func main() {
 	// Migrate the schema
 	db.AutoMigrate(Schemas...)
 
-	ch := make(chan common.PlayerExitNotification)
+	ch := make(chan common.PlayerExitNotification, 10)
 	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db, ch)
 	disbot := bot.NewWowsBot(botToken, sugar.With("component", "discord_bot"), db, ch)
 	go disbot.StartBot()
 
 	api.FillShipMapping()
-	err = api.ScrapAllClans()
-	if err != nil {
-		fmt.Printf(err.Error())
+	for {
+		err = api.ScrapAllClans()
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
+		time.Sleep(time.Hour * 12)
 	}
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
