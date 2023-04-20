@@ -16,9 +16,10 @@ type Player struct {
 	Battles             int       `gorm:"index"`
 	WinRate             float64   `gorm:"index"`
 	HiddenProfile       bool      `gorm:"index"`
-	Tracked             bool      `gorm:"index"`
 	ClanID              int       `gorm:"index"`
 	ClanJoinDate        time.Time
 	Clan                *Clan
+	Tracked             bool `gorm:"index"`
 	PreviousClans       []PreviousClan
+	Filters             []Filter `gorm:"many2many:filter_tracked_player;"`
 }
