@@ -2,16 +2,18 @@ package main
 
 import (
 	"fmt"
+	"github.com/kakwa/wows-recruiting-bot/bot"
 	"github.com/kakwa/wows-recruiting-bot/common"
 	"github.com/kakwa/wows-recruiting-bot/controller"
 	"github.com/kakwa/wows-recruiting-bot/model"
-	"github.com/kakwa/wows-recruiting-bot/bot"
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"moul.io/zapgorm2"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -69,4 +71,8 @@ func main() {
 	if err != nil {
 		fmt.Printf(err.Error())
 	}
+	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-sc
 }

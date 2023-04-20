@@ -13,6 +13,6 @@ type Filter struct {
 	TimeSinceLastBattle time.Time
 	MinNumT10           int
 	MinNumBattles       int
-	DiscordChannelID    int64
-	DiscordGuildID      int64
+	DiscordChannelID    string
+	DiscordGuildID      string
 }
