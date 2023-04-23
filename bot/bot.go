@@ -27,7 +27,7 @@ var (
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name:        "wows-recruit-test",
-			Description: "Test the output with a random player",
+			Description: "Test with a random player",
 		},
 	}
 )
