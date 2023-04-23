@@ -1,4 +1,4 @@
-package controller
+package backend
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func WowsRealm(realmStr string) (wargaming.Realm, error) {
 	}
 }
 
-type Controller struct {
+type Backend struct {
 	client         *wargaming.Client
 	ShipMapping    map[int]int
 	Realm          wargaming.Realm
@@ -71,7 +71,7 @@ func difference(a, b []*model.Player) []*model.Player {
 	return diff
 }
 
-func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification) *Controller {
+func NewBackend(key string, realm string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification) *Backend {
 	languages := []lingua.Language{
 		lingua.English,
 		lingua.German,
@@ -125,7 +125,7 @@ func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm
 	if err != nil {
 		return nil
 	}
-	return &Controller{
+	return &Backend{
 		client:         wargaming.NewClient(key, &wargaming.ClientOptions{HTTPClient: &http.Client{Timeout: 10 * time.Second}}),
 		ShipMapping:    make(map[int]int),
 		Detector:       detector,
@@ -136,9 +136,9 @@ func NewController(key string, realm string, logger *zap.SugaredLogger, db *gorm
 	}
 }
 
-func (ctl *Controller) FillShipMapping() error {
-	ctl.Logger.Debugf("Start filling ship mapping")
-	client := ctl.client
+func (backend *Backend) FillShipMapping() error {
+	backend.Logger.Debugf("Start filling ship mapping")
+	client := backend.client
 	respSize := 9999
 	pageNo := 1
 	for respSize != 0 {
@@ -158,18 +158,18 @@ func (ctl *Controller) FillShipMapping() error {
 		respSize = len(res)
 		pageNo++
 		for _, ship := range res {
-			ctl.ShipMapping[*ship.ShipId] = *ship.Tier
+			backend.ShipMapping[*ship.ShipId] = *ship.Tier
 		}
 	}
-	ctl.Logger.Debugf("Finish filling ship mapping")
+	backend.Logger.Debugf("Finish filling ship mapping")
 	return nil
 
 }
 
-func (ctl *Controller) GetPlayerT10Count(playerId int) (int, error) {
-	ctl.Logger.Debugf("Start getting T10 ship count for player %d", playerId)
-	realm := ctl.Realm
-	client := ctl.client
+func (backend *Backend) GetPlayerT10Count(playerId int) (int, error) {
+	backend.Logger.Debugf("Start getting T10 ship count for player %d", playerId)
+	realm := backend.Realm
+	client := backend.client
 	ret := 0
 	inGarage := "1"
 	res, _, err := client.Wows.ShipsStats(context.Background(), realm, playerId, &wows.ShipsStatsOptions{
@@ -190,7 +190,7 @@ func (ctl *Controller) GetPlayerT10Count(playerId int) (int, error) {
 	}
 
 	for _, ship := range shipList {
-		shipTier, ok := ctl.ShipMapping[*ship.ShipId]
+		shipTier, ok := backend.ShipMapping[*ship.ShipId]
 		if !ok {
 			continue
 		}
@@ -198,14 +198,14 @@ func (ctl *Controller) GetPlayerT10Count(playerId int) (int, error) {
 			ret++
 		}
 	}
-	ctl.Logger.Debugf("Finish getting T10 ship count for player %d", playerId)
+	backend.Logger.Debugf("Finish getting T10 ship count for player %d", playerId)
 	return ret, nil
 }
 
-func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model.Player, error) {
-	ctl.Logger.Debugf("Start getting player details for players %v", playerIds)
-	realm := ctl.Realm
-	client := ctl.client
+func (backend *Backend) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model.Player, error) {
+	backend.Logger.Debugf("Start getting player details for players %v", playerIds)
+	realm := backend.Realm
+	client := backend.client
 	var ret []*model.Player
 	players, err := client.Wows.AccountInfo(context.Background(), realm, playerIds, &wows.AccountInfoOptions{
 		Fields: []string{"account_id", "created_at", "hidden_profile", "last_battle_time", "logout_at", "nickname", "statistics.pvp.wins", "statistics.pvp.battles", "statistics.battles"},
@@ -230,7 +230,7 @@ func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model
 		}
 
 		if withT10 {
-			T10Count, err = ctl.GetPlayerT10Count(*playerData.AccountId)
+			T10Count, err = backend.GetPlayerT10Count(*playerData.AccountId)
 			if err != nil {
 				T10Count = 0
 			}
@@ -240,7 +240,7 @@ func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model
 		if playerData.Statistics == nil || playerData.Statistics.Pvp == nil || playerData.Statistics.Pvp.Battles == nil || playerData.Statistics.Pvp.Wins == nil {
 			battles = 1
 			win = 0
-			ctl.Logger.Debugf("no stats for player %s[%d]", *playerData.Nickname, *playerData.AccountId)
+			backend.Logger.Debugf("no stats for player %s[%d]", *playerData.Nickname, *playerData.AccountId)
 		} else {
 			battles = *playerData.Statistics.Pvp.Battles
 			win = *playerData.Statistics.Pvp.Wins
@@ -260,13 +260,13 @@ func (ctl *Controller) GetPlayerDetails(playerIds []int, withT10 bool) ([]*model
 		}
 		ret = append(ret, player)
 	}
-	ctl.Logger.Debugf("Finish getting player details for players %v", playerIds)
+	backend.Logger.Debugf("Finish getting player details for players %v", playerIds)
 	return ret, nil
 }
 
-func (ctl *Controller) ListClansIds(page int) ([]int, error) {
-	ctl.Logger.Debugf("Start listing clans page[%d]", page)
-	client := ctl.client
+func (backend *Backend) ListClansIds(page int) ([]int, error) {
+	backend.Logger.Debugf("Start listing clans page[%d]", page)
+	client := backend.client
 	var ret []int
 	limit := 100
 	res, err := client.Wows.ClansList(context.Background(), EURealm, &wows.ClansListOptions{
@@ -280,12 +280,12 @@ func (ctl *Controller) ListClansIds(page int) ([]int, error) {
 	for _, clan := range res {
 		ret = append(ret, *clan.ClanId)
 	}
-	ctl.Logger.Debugf("Finish listing clans page[%d]", page)
+	backend.Logger.Debugf("Finish listing clans page[%d]", page)
 	return ret, nil
 }
 
-func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err error) {
-	client := ctl.client
+func (backend *Backend) GetClansDetails(clanIDs []int) (ret []*model.Clan, err error) {
+	client := backend.client
 	clanInfo, err := client.Wows.ClansInfo(context.Background(), EURealm, clanIDs, &wows.ClansInfoOptions{
 		Extra:  []string{"members"},
 		Fields: []string{"description", "name", "tag", "clan_id", "created_at", "is_clan_disbanded", "updated_at", "members_ids", "leader_id"},
@@ -309,12 +309,12 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 			clanString = clanString + " " + *clan.Description
 		}
 
-		confidenceValues := ctl.Detector.ComputeLanguageConfidenceValues(clanString)
+		confidenceValues := backend.Detector.ComputeLanguageConfidenceValues(clanString)
 		for _, elem := range confidenceValues {
 			// If we have a decent enough confidence, we pick this language
 			// Otherwise we leave it as unknown
 			if elem.Value() > 0.50 {
-				ctl.Logger.Debugf("Clan [%s] language detection %s: %.2f", *clan.Tag, elem.Language(), elem.Value())
+				backend.Logger.Debugf("Clan [%s] language detection %s: %.2f", *clan.Tag, elem.Language(), elem.Value())
 				language = elem.Language()
 				break
 			}
@@ -341,17 +341,17 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 	return ret, nil
 }
 
-func (ctl *Controller) UpdatePlayerListT10(playerList []*model.Player) ([]*model.Player, error) {
+func (backend *Backend) UpdatePlayerListT10(playerList []*model.Player) ([]*model.Player, error) {
 	var ids []int
 	for _, player := range playerList {
 		ids = append(ids, player.ID)
 	}
-	return ctl.GetPlayerDetails(ids, true)
+	return backend.GetPlayerDetails(ids, true)
 }
 
-func (ctl *Controller) UpdateClans(clanIDs []int) error {
+func (backend *Backend) UpdateClans(clanIDs []int) error {
 	for {
-		clanDetails, err := ctl.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
+		clanDetails, err := backend.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
 		if err != nil {
 			return err
 		}
@@ -359,52 +359,52 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 		for _, clan := range clanDetails {
 			var clanPrev model.Clan
 			clanPrev.ID = clan.ID
-			err = ctl.DB.Preload("Players").First(&clanPrev).Error
+			err = backend.DB.Preload("Players").First(&clanPrev).Error
 
 			if err == nil {
 				prevPlayersList := make([]int, len(clanPrev.Players))
-				ctl.Logger.Debugf("Clan [%s] already present, computing player diff", clan.Tag)
+				backend.Logger.Debugf("Clan [%s] already present, computing player diff", clan.Tag)
 				for i, player := range clanPrev.Players {
 					prevPlayersList[i] = player.ID
 				}
 				diff := difference(clanPrev.Players, clan.Players)
 				if len(diff) != 0 {
-					diff, err := ctl.UpdatePlayerListT10(diff)
+					diff, err := backend.UpdatePlayerListT10(diff)
 					if err != nil {
-						ctl.Logger.Infof("Failed to update players: %s", err.Error())
+						backend.Logger.Infof("Failed to update players: %s", err.Error())
 						continue
 					}
 
 					for _, player := range diff {
-						ctl.Logger.Infof("player '%s' left clan [%s] (language: %s)", player.Nick, clan.Tag, clan.Language)
+						backend.Logger.Infof("player '%s' left clan [%s] (language: %s)", player.Nick, clan.Tag, clan.Language)
 						prevClanEntry := &model.PreviousClan{
 							JoinDate:  player.ClanJoinDate,
 							LeaveDate: time.Now(),
 							ClanID:    clanPrev.ID,
 							PlayerID:  player.ID,
 						}
-						ctl.PlayerExitChan <- common.PlayerExitNotification{Player: *player, Clan: clanPrev}
-						ctl.DB.Create(prevClanEntry)
-						ctl.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
+						backend.PlayerExitChan <- common.PlayerExitNotification{Player: *player, Clan: clanPrev}
+						backend.DB.Create(prevClanEntry)
+						backend.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
 					}
 				}
-				ctl.DB.Model(&clanPrev).Association("Players").Delete(diff)
+				backend.DB.Model(&clanPrev).Association("Players").Delete(diff)
 			}
 
 			// Upsert the clan informations
-			ctl.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(clan)
-			ctl.Logger.Debugf("Start getting player details for clan [%s]", clan.Tag)
+			backend.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(clan)
+			backend.Logger.Debugf("Start getting player details for clan [%s]", clan.Tag)
 
 			// Upsert the players information
-			players, err := ctl.GetPlayerDetails(clan.PlayerIDs, false)
+			players, err := backend.GetPlayerDetails(clan.PlayerIDs, false)
 			if err != nil {
-				ctl.Logger.Infof("Failed to get Players: %s", err.Error())
+				backend.Logger.Infof("Failed to get Players: %s", err.Error())
 			}
 			for _, player := range players {
 				player.ClanID = clan.ID
-				ctl.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
+				backend.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
 			}
-			ctl.Logger.Debugf("Finish getting player details for clan [%s]", clan.Tag)
+			backend.Logger.Debugf("Finish getting player details for clan [%s]", clan.Tag)
 		}
 		if len(clanIDs) < 100 {
 			break
@@ -414,37 +414,37 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 	return nil
 }
 
-func (ctl *Controller) ScrapMonitoredClans() (err error) {
-	ctl.Logger.Infof("start scrapping monitored clans")
+func (backend *Backend) ScrapMonitoredClans() (err error) {
+	backend.Logger.Infof("start scrapping monitored clans")
 	var clans []model.Clan
-	ctl.DB.Where("tracked = true").Find(&clans)
+	backend.DB.Where("tracked = true").Find(&clans)
 	var ids []int
 	for _, clan := range clans {
 		ids = append(ids, clan.ID)
 	}
-	err = ctl.UpdateClans(ids)
-	ctl.Logger.Infof("finish scrapping %d monitored clans", len(ids))
+	err = backend.UpdateClans(ids)
+	backend.Logger.Infof("finish scrapping %d monitored clans", len(ids))
 	return err
 }
 
-func (ctl *Controller) ScrapAllClans() (err error) {
-	ctl.Logger.Infof("Start scrapping all clans")
+func (backend *Backend) ScrapAllClans() (err error) {
+	backend.Logger.Infof("Start scrapping all clans")
 	page := 1
 	for {
-		ctl.Logger.Infof("Start scrapping clan page [%d]", page)
-		clanIDs, err := ctl.ListClansIds(page)
+		backend.Logger.Infof("Start scrapping clan page [%d]", page)
+		clanIDs, err := backend.ListClansIds(page)
 		if err != nil {
 			return err
 		}
 
-		ctl.UpdateClans(clanIDs)
+		backend.UpdateClans(clanIDs)
 
-		ctl.Logger.Infof("Finish scrapping clan page [%d]", page)
+		backend.Logger.Infof("Finish scrapping clan page [%d]", page)
 		if len(clanIDs) < 100 {
 			break
 		}
 		page++
 	}
-	ctl.Logger.Infof("Finish scrapping all clans")
+	backend.Logger.Infof("Finish scrapping all clans")
 	return nil
 }

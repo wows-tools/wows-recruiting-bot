@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/go-co-op/gocron"
+	"github.com/kakwa/wows-recruiting-bot/backend"
 	"github.com/kakwa/wows-recruiting-bot/bot"
 	"github.com/kakwa/wows-recruiting-bot/common"
-	"github.com/kakwa/wows-recruiting-bot/controller"
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
@@ -67,7 +67,7 @@ func main() {
 
 	ch := make(chan common.PlayerExitNotification, 10)
 	botChanOSSig := make(chan os.Signal, 1)
-	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db, ch)
+	api := backend.NewBackend(key, server, sugar.With("component", "backend"), db, ch)
 	api.FillShipMapping()
 
 	var count int64
