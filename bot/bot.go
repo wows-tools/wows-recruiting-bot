@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"sync"
@@ -78,7 +79,18 @@ var (
 			Name:        "wows-recruit-list-clans",
 			Description: "Get the list of monitored clans (in a CSV file)",
 		},
-
+		{
+			Name:        "wows-recruit-replace-clans",
+			Description: "Replace all the monitored clans with a list from a csv file",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Name:        "clans-csv",
+					Description: "CSV file containing the clan tags (clan tags must be the first column)",
+					Required:    true,
+				},
+			},
+		},
 		{
 			Name:        "wows-recruit-add-clan",
 			Description: "Add a clan to the list of monitored clans",
@@ -304,7 +316,79 @@ func (bot *WowsBot) ListMonitoredClans(s *discordgo.Session, i *discordgo.Intera
 }
 
 func (bot *WowsBot) ReplaceMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	err := bot.DB.Preload("TrackedClans").First(&filter).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Filter doesn't seem to be set for this channel, please use '/wows-recruit-set-filter' first",
+			},
+		})
+		return
+	}
 
+	attachements := i.ApplicationCommandData().Resolved.Attachments
+	url := ""
+	for _, value := range attachements {
+		url = value.URL
+	}
+	resp, err := http.Get(url)
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Failed to recover csv file",
+			},
+		})
+		bot.Logger.Errorf("error downloading csv file", err)
+		return
+	}
+	//reader := bytes.NewReader(resp.Body)
+	csvReader := csv.NewReader(resp.Body)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Failed to recover csv file",
+			},
+		})
+
+		bot.Logger.Errorf("Unable to parse file as CSV", err)
+	}
+	defer resp.Body.Close()
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Replacing clans",
+		},
+	})
+
+	// Remove all tracked clans
+	bot.DB.Model(&filter).Association("TrackedClans").Delete(filter.TrackedClans)
+
+
+	// Add all clans in the CSV file
+	for _, line := range records {
+		if len(line) < 1 {
+			continue
+		}
+		var clan model.Clan
+		clanTag := line[0]
+		err = bot.DB.Where("tag = ?", clanTag).First(&clan).Error
+		if err != nil {
+			bot.Discord.ChannelMessageSend(i.ChannelID, "Clan [" + clanTag + "] doesn't seem to exist")
+			continue
+		}
+
+		clan.Tracked = true
+		bot.DB.Save(&clan)
+		bot.DB.Model(&filter).Association("TrackedClans").Append(&clan)
+
+	}
 }
 
 func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification, botChanOSSig chan os.Signal) *WowsBot {
@@ -315,12 +399,13 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 	bot.OSSignal = botChanOSSig
 
 	bot.CommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"wows-recruit-test":        bot.TestOutput,
-		"wows-recruit-set-filter":  bot.SetFilter,
-		"wows-recruit-get-filter":  bot.GetFilter,
-		"wows-recruit-add-clan":    bot.AddMonitoredClan,
-		"wows-recruit-remove-clan": bot.RemoveMonitoredClan,
-		"wows-recruit-list-clans":  bot.ListMonitoredClans,
+		"wows-recruit-test":          bot.TestOutput,
+		"wows-recruit-set-filter":    bot.SetFilter,
+		"wows-recruit-get-filter":    bot.GetFilter,
+		"wows-recruit-add-clan":      bot.AddMonitoredClan,
+		"wows-recruit-remove-clan":   bot.RemoveMonitoredClan,
+		"wows-recruit-list-clans":    bot.ListMonitoredClans,
+		"wows-recruit-replace-clans": bot.ReplaceMonitoredClans,
 	}
 
 	// Create a new Discord session using the provided bot token.

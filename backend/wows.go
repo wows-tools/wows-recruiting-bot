@@ -295,6 +295,10 @@ func (backend *Backend) GetClansDetails(clanIDs []int) (ret []*model.Clan, err e
 	}
 
 	for _, clan := range clanInfo {
+		// Clan doesn't actually exist
+		if clan == nil {
+			continue
+		}
 		// Clan is disbanded, ignore
 		if clan.IsClanDisbanded != nil && *clan.IsClanDisbanded {
 			continue
