@@ -7,6 +7,7 @@ import (
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+        "gorm.io/gorm/clause"
 	"math/rand"
 	"os"
 	"sync"
@@ -23,14 +24,47 @@ type WowsBot struct {
 }
 
 var (
-	integerOptionMinValue          = 1.0
-	dmPermission                   = false
-	defaultMemberPermissions int64 = discordgo.PermissionManageServer
+	integerOptionMinValue          = 0.0
 
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name:        "wows-recruit-test",
 			Description: "Test with a random player",
+		},
+		{
+			Name:        "wows-recruit-set-filter",
+			Description: "Set the recruitement filter for this channel",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "min-t10",
+					Description: "Minimum number of t10",
+					MinValue:    &integerOptionMinValue,
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "max-days-last-battle",
+					Description: "Number of days since last battle",
+					MinValue:    &integerOptionMinValue,
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "min-battles",
+					Description: "Minimum number of battles",
+					MinValue:    &integerOptionMinValue,
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "min-winrate",
+					Description: "Minimum Win Rate (percent)",
+					MinValue:    &integerOptionMinValue,
+					MaxValue:    100.0,
+					Required:    true,
+				},
+			},
 		},
 	}
 )
@@ -52,7 +86,27 @@ func (bot *WowsBot) TestOutput(s *discordgo.Session, i *discordgo.InteractionCre
 }
 
 func (bot *WowsBot) SetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	filter.DiscordGuildID = i.GuildID
+	filter.MinNumT10 = int(optionMap["min-t10"].IntValue())
+	filter.DaysSinceLastBattle = int(optionMap["max-days-last-battle"].IntValue())
+	filter.MinNumBattles = int(optionMap["min-battles"].IntValue())
+	filter.MinPlayerWR = float64(optionMap["min-winrate"].IntValue()) / 100
 
+	bot.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(filter)
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Set filter",
+		},
+	})
 }
 
 func (bot *WowsBot) GetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -84,6 +138,7 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 
 	bot.CommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"wows-recruit-test": bot.TestOutput,
+		"wows-recruit-set-filter": bot.SetFilter,
 	}
 
 	// Create a new Discord session using the provided bot token.
