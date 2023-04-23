@@ -341,6 +341,14 @@ func (ctl *Controller) GetClansDetails(clanIDs []int) (ret []*model.Clan, err er
 	return ret, nil
 }
 
+func (ctl *Controller) UpdatePlayerListT10(playerList []*model.Player) ([]*model.Player, error) {
+	var ids []int
+	for _, player := range playerList {
+		ids = append(ids, player.ID)
+	}
+	return ctl.GetPlayerDetails(ids, true)
+}
+
 func (ctl *Controller) UpdateClans(clanIDs []int) error {
 	for {
 		clanDetails, err := ctl.GetClansDetails(clanIDs[0:(min(100, len(clanIDs)))])
@@ -361,6 +369,12 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 				}
 				diff := difference(clanPrev.Players, clan.Players)
 				if len(diff) != 0 {
+					diff, err := ctl.UpdatePlayerListT10(diff)
+					if err != nil {
+						ctl.Logger.Infof("Failed to update players: %s", err.Error())
+						continue
+					}
+
 					for _, player := range diff {
 						ctl.Logger.Infof("player '%s' left clan [%s] (language: %s)", player.Nick, clan.Tag, clan.Language)
 						prevClanEntry := &model.PreviousClan{
@@ -371,6 +385,7 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 						}
 						ctl.PlayerExitChan <- common.PlayerExitNotification{Player: *player, Clan: clanPrev}
 						ctl.DB.Create(prevClanEntry)
+						ctl.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(player)
 					}
 				}
 				ctl.DB.Model(&clanPrev).Association("Players").Delete(diff)
