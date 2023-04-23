@@ -370,7 +370,6 @@ func (bot *WowsBot) ReplaceMonitoredClans(s *discordgo.Session, i *discordgo.Int
 	// Remove all tracked clans
 	bot.DB.Model(&filter).Association("TrackedClans").Delete(filter.TrackedClans)
 
-
 	// Add all clans in the CSV file
 	for _, line := range records {
 		if len(line) < 1 {
@@ -380,7 +379,7 @@ func (bot *WowsBot) ReplaceMonitoredClans(s *discordgo.Session, i *discordgo.Int
 		clanTag := line[0]
 		err = bot.DB.Where("tag = ?", clanTag).First(&clan).Error
 		if err != nil {
-			bot.Discord.ChannelMessageSend(i.ChannelID, "Clan [" + clanTag + "] doesn't seem to exist")
+			bot.Discord.ChannelMessageSend(i.ChannelID, "Clan ["+clanTag+"] doesn't seem to exist")
 			continue
 		}
 
@@ -436,11 +435,12 @@ func (bot *WowsBot) LoggedInBot(s *discordgo.Session, r *discordgo.Ready) {
 }
 
 func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, discordChannelID string) {
-	msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
+	msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles: %d | T10s: %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
 		common.Escape(player.Nick),
 		common.Escape(clan.Tag),
 		player.WinRate,
 		player.Battles,
+		player.NumberT10,
 		player.LastBattleDate.String(),
 		player.ID,
 		player.Nick,
