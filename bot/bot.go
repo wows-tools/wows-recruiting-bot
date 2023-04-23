@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"sync"
+	"time"
 )
 
 type WowsBot struct {
@@ -66,6 +67,34 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "wows-recruit-get-filter",
+			Description: "Get the current filter for this channel",
+		},
+		{
+			Name:        "wows-recruit-add-clan",
+			Description: "Add a clan to the list of monitored clans",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "clan-tag",
+					Description: "Clan Tag to add",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "wows-recruit-remove-clan",
+			Description: "Remove a clan from the list of monitored clans",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "clan-tag",
+					Description: "Clan Tag to remove",
+					Required:    true,
+				},
+			},
+		},
 	}
 )
 
@@ -83,6 +112,16 @@ func (bot *WowsBot) TestOutput(s *discordgo.Session, i *discordgo.InteractionCre
 		Tag: "TEST",
 	}
 	bot.SendPlayerExitMessage(player, clan, i.ChannelID)
+}
+
+func FilterToString(filter model.Filter) string {
+	msg := fmt.Sprintf("Minimum Win Rate: %d%% | Minimum number of battles: %d | Minimum number of T10s: %d | Maximum number of days since last battle: %d",
+		int(filter.MinPlayerWR*100),
+		filter.MinNumBattles,
+		filter.MinNumT10,
+		filter.DaysSinceLastBattle,
+	)
+	return msg
 }
 
 func (bot *WowsBot) SetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -104,21 +143,115 @@ func (bot *WowsBot) SetFilter(s *discordgo.Session, i *discordgo.InteractionCrea
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "Set filter",
+			Content: "Set filter to: " + FilterToString(filter),
 		},
 	})
 }
 
 func (bot *WowsBot) GetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
-
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	err := bot.DB.First(&filter).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Filter doesn't seem to be set for this channel, please use '/wows-recruit-set-filter'",
+			},
+		})
+		return
+	}
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Current filter is: " + FilterToString(filter),
+		},
+	})
 }
 
 func (bot *WowsBot) AddMonitoredClan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+	clanTag := optionMap["clan-tag"].StringValue()
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	err := bot.DB.First(&filter).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Filter doesn't seem to be set for this channel, please use '/wows-recruit-set-filter' first",
+			},
+		})
+		return
+	}
+
+	var clan model.Clan
+	clan.Tag = clanTag
+	err = bot.DB.Where("tag = ?", clanTag).First(&clan).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Clan [" + clanTag + "] doesn't seem to exist",
+			},
+		})
+		return
+	}
+
+	clan.Tracked = true
+	bot.DB.Save(&clan)
+	bot.DB.Model(&filter).Association("TrackedClans").Append(&clan)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Clan [" + clanTag + "] added",
+		},
+	})
 
 }
 
-func (bot *WowsBot) DeleteMonitoredClan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (bot *WowsBot) RemoveMonitoredClan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
+	clanTag := optionMap["clan-tag"].StringValue()
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	err := bot.DB.First(&filter).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Filter doesn't seem to be set for this channel, please use '/wows-recruit-set-filter' first",
+			},
+		})
+		return
+	}
+	var clan model.Clan
+	err = bot.DB.Where("tag = ?", clanTag).First(&clan).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Clan [" + clanTag + "] doesn't seem to exist",
+			},
+		})
+		return
+	}
 
+	bot.DB.Model(&filter).Association("TrackedClans").Delete(&clan)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Clan [" + clanTag + "] removed",
+		},
+	})
 }
 
 func (bot *WowsBot) ListMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -137,8 +270,11 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 	bot.OSSignal = botChanOSSig
 
 	bot.CommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"wows-recruit-test":       bot.TestOutput,
-		"wows-recruit-set-filter": bot.SetFilter,
+		"wows-recruit-test":        bot.TestOutput,
+		"wows-recruit-set-filter":  bot.SetFilter,
+		"wows-recruit-get-filter":  bot.GetFilter,
+		"wows-recruit-add-clan":    bot.AddMonitoredClan,
+		"wows-recruit-remove-clan": bot.RemoveMonitoredClan,
 	}
 
 	// Create a new Discord session using the provided bot token.
@@ -184,8 +320,32 @@ func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, 
 }
 
 func (bot *WowsBot) FilterMatch(filter model.Filter, player model.Player, clan model.Clan) bool {
-	// TODO
-	return true
+	if player.WinRate < filter.MinPlayerWR {
+		bot.Logger.Debugf("Player '%s' did not match WR for filter '%s'", player.Nick, filter.DiscordChannelID)
+		return false
+	}
+	now := time.Now()
+	minLastBattle := now.Add(time.Duration(-24*filter.DaysSinceLastBattle) * time.Hour)
+	if player.LastBattleDate.Before(minLastBattle) {
+		bot.Logger.Debugf("Player '%s' did not match last battle date for filter '%s'", player.Nick, filter.DiscordChannelID)
+		return false
+	}
+	if player.NumberT10 < filter.MinNumT10 {
+		bot.Logger.Debugf("Player '%s' did not match min T10s for filter '%s'", player.Nick, filter.DiscordChannelID)
+		return false
+	}
+	if player.Battles < filter.MinNumBattles {
+		bot.Logger.Debugf("Player '%s' did not match min Battles for filter '%s'", player.Nick, filter.DiscordChannelID)
+		return false
+	}
+	for _, trackedClan := range filter.TrackedClans {
+		if trackedClan.ID == clan.ID {
+			return true
+		}
+	}
+
+	bot.Logger.Debugf("Player '%s' did not leave a clan tracked by filter '%s'", player.Nick, filter.DiscordChannelID)
+	return false
 }
 
 func (bot *WowsBot) StartBot(wg *sync.WaitGroup) {
@@ -209,11 +369,12 @@ func (bot *WowsBot) StartBot(wg *sync.WaitGroup) {
 
 	wg.Add(1)
 	defer wg.Done()
+	bot.Logger.Infof("Starting main bot loop")
 	for {
 		select {
 		case change := <-bot.PlayerExitChan:
 			filters := make([]model.Filter, 0)
-			bot.DB.Find(&filters)
+			bot.DB.Preload("TrackedClans").Find(&filters)
 			for _, filter := range filters {
 				if bot.FilterMatch(filter, change.Player, change.Clan) {
 					bot.SendPlayerExitMessage(change.Player, change.Clan, filter.DiscordChannelID)
