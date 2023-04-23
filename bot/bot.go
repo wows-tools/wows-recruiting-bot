@@ -437,8 +437,8 @@ func (bot *WowsBot) LoggedInBot(s *discordgo.Session, r *discordgo.Ready) {
 
 func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, discordChannelID string) {
 	msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
-		player.Nick,
-		clan.Tag,
+		common.Escape(player.Nick),
+		common.Escape(clan.Tag),
 		player.WinRate,
 		player.Battles,
 		player.LastBattleDate.String(),
