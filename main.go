@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-co-op/gocron"
 	"github.com/kakwa/wows-recruiting-bot/bot"
 	"github.com/kakwa/wows-recruiting-bot/common"
 	"github.com/kakwa/wows-recruiting-bot/controller"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -46,6 +48,7 @@ func main() {
 	defer logger.Sync()
 	glogger := zapgorm2.New(logger)
 	sugar := logger.Sugar()
+	mainLogger := sugar.With("component", "main")
 
 	db, err := gorm.Open(sqlite.Open("wows-recruiting-bot.db"), &gorm.Config{Logger: glogger})
 	if err != nil {
@@ -65,21 +68,32 @@ func main() {
 	ch := make(chan common.PlayerExitNotification, 10)
 	botChanOSSig := make(chan os.Signal, 1)
 	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db, ch)
+	api.FillShipMapping()
+
+	var count int64
+	db.Table("clans").Count(&count)
+	if count < 1000 {
+		mainLogger.Infof("DB is empty, doing an initial complete scan, please wait (can take a few hours)")
+		err = api.ScrapAllClans()
+		if err != nil {
+			mainLogger.Errorf("first scan errored with: %s", err.Error())
+		}
+	}
+	s := gocron.NewScheduler(time.UTC)
+	mainLogger.Infof("adding 'updating all clans' task every 7 days")
+	s.Every(7).Days().At("10:30").Do(api.ScrapAllClans)
+
+	mainLogger.Infof("adding 'updating monitored clans' task every 2 hours")
+	s.Every(2).Hours().Do(api.ScrapMonitoredClans)
+	s.StartAsync()
+
 	disbot := bot.NewWowsBot(botToken, sugar.With("component", "discord_bot"), db, ch, botChanOSSig)
 
 	var wg sync.WaitGroup
 
 	go disbot.StartBot(&wg)
 
-	api.FillShipMapping()
-	//for {
-	//	err = api.ScrapAllClans()
-	//	if err != nil {
-	//		fmt.Printf(err.Error())
-	//	}
-	//	time.Sleep(time.Hour * 12)
-	//}
-	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
+	mainLogger.Infof("Bot is now running.  Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	sig := <-sc

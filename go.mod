@@ -14,10 +14,12 @@ require (
 
 require (
 	github.com/bwmarrin/discordgo v0.27.1 // indirect
+	github.com/go-co-op/gocron v1.23.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-sqlite3 v1.14.15 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
