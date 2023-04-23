@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"bytes"
+	"encoding/csv"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kakwa/wows-recruiting-bot/common"
@@ -10,6 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 	"math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -71,6 +74,11 @@ var (
 			Name:        "wows-recruit-get-filter",
 			Description: "Get the current filter for this channel",
 		},
+		{
+			Name:        "wows-recruit-list-clans",
+			Description: "Get the list of monitored clans (in a CSV file)",
+		},
+
 		{
 			Name:        "wows-recruit-add-clan",
 			Description: "Add a clan to the list of monitored clans",
@@ -255,7 +263,44 @@ func (bot *WowsBot) RemoveMonitoredClan(s *discordgo.Session, i *discordgo.Inter
 }
 
 func (bot *WowsBot) ListMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var filter model.Filter
+	filter.DiscordChannelID = i.ChannelID
+	err := bot.DB.Preload("TrackedClans").First(&filter).Error
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Filter doesn't seem to be set for this channel, please use '/wows-recruit-set-filter' first",
+			},
+		})
+		return
+	}
+	var buf bytes.Buffer
+	csvWriter := csv.NewWriter(&buf)
+	for _, clan := range filter.TrackedClans {
+		csvWriter.Write([]string{
+			clan.Tag,
+			clan.Name,
+			clan.Language,
+			clan.CreationDate.String(),
+			strconv.Itoa(clan.ID),
+		})
+	}
+	csvWriter.Flush()
+	reader := bytes.NewReader(buf.Bytes())
+	file := discordgo.File{
+		Name:        "monitored_clan_list.csv",
+		ContentType: "text/csv",
+		Reader:      reader,
+	}
 
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "List of monitored clan in attached file",
+			Files:   []*discordgo.File{&file},
+		},
+	})
 }
 
 func (bot *WowsBot) ReplaceMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -275,6 +320,7 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 		"wows-recruit-get-filter":  bot.GetFilter,
 		"wows-recruit-add-clan":    bot.AddMonitoredClan,
 		"wows-recruit-remove-clan": bot.RemoveMonitoredClan,
+		"wows-recruit-list-clans":  bot.ListMonitoredClans,
 	}
 
 	// Create a new Discord session using the provided bot token.
