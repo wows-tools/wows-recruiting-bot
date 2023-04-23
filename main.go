@@ -13,8 +13,8 @@ import (
 	"moul.io/zapgorm2"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
-	"time"
 )
 
 func min[T constraints.Ordered](a, b T) T {
@@ -63,20 +63,26 @@ func main() {
 	db.AutoMigrate(Schemas...)
 
 	ch := make(chan common.PlayerExitNotification, 10)
+	botChanOSSig := make(chan os.Signal, 1)
 	api := controller.NewController(key, server, sugar.With("component", "wows_api"), db, ch)
-	disbot := bot.NewWowsBot(botToken, sugar.With("component", "discord_bot"), db, ch)
-	go disbot.StartBot()
+	disbot := bot.NewWowsBot(botToken, sugar.With("component", "discord_bot"), db, ch, botChanOSSig)
+
+	var wg sync.WaitGroup
+
+	go disbot.StartBot(&wg)
 
 	api.FillShipMapping()
-	for {
-		err = api.ScrapAllClans()
-		if err != nil {
-			fmt.Printf(err.Error())
-		}
-		time.Sleep(time.Hour * 12)
-	}
+	//for {
+	//	err = api.ScrapAllClans()
+	//	if err != nil {
+	//		fmt.Printf(err.Error())
+	//	}
+	//	time.Sleep(time.Hour * 12)
+	//}
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+	sig := <-sc
+	botChanOSSig <- sig
+	wg.Wait()
 }

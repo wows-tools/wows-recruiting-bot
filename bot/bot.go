@@ -8,11 +8,14 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"math/rand"
+	"os"
+	"sync"
 )
 
 type WowsBot struct {
 	BotToken        string
 	PlayerExitChan  chan common.PlayerExitNotification
+	OSSignal        chan os.Signal
 	Logger          *zap.SugaredLogger
 	Discord         *discordgo.Session
 	DB              *gorm.DB
@@ -48,11 +51,36 @@ func (bot *WowsBot) TestOutput(s *discordgo.Session, i *discordgo.InteractionCre
 	bot.SendPlayerExitMessage(player, clan, i.ChannelID)
 }
 
-func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification) *WowsBot {
+func (bot *WowsBot) SetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func (bot *WowsBot) GetFilter(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func (bot *WowsBot) AddMonitoredClan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func (bot *WowsBot) DeleteMonitoredClan(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func (bot *WowsBot) ListMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func (bot *WowsBot) ReplaceMonitoredClans(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+}
+
+func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerExitChan chan common.PlayerExitNotification, botChanOSSig chan os.Signal) *WowsBot {
 	var bot WowsBot
 	bot.PlayerExitChan = playerExitChan
 	bot.Logger = logger
 	bot.DB = db
+	bot.OSSignal = botChanOSSig
 
 	bot.CommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
 		"wows-recruit-test": bot.TestOutput,
@@ -66,9 +94,6 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 	}
 
 	dg.AddHandler(bot.LoggedInBot)
-
-	// Register the messageCreate func as a callback for MessageCreate events.
-	dg.AddHandler(bot.messageCreate)
 
 	// In this example, we only care about receiving message events.
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
@@ -103,7 +128,12 @@ func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, 
 	bot.Discord.ChannelMessageSend(discordChannelID, msg)
 }
 
-func (bot *WowsBot) StartBot() {
+func (bot *WowsBot) FilterMatch(filter model.Filter, player model.Player, clan model.Clan) bool {
+	// TODO
+	return true
+}
+
+func (bot *WowsBot) StartBot(wg *sync.WaitGroup) {
 	bot.Logger.Infof("Adding commands...")
 	s := bot.Discord
 
@@ -122,56 +152,30 @@ func (bot *WowsBot) StartBot() {
 		registeredCommands[i] = cmd
 	}
 
+	wg.Add(1)
+	defer wg.Done()
 	for {
 		select {
 		case change := <-bot.PlayerExitChan:
 			filters := make([]model.Filter, 0)
 			bot.DB.Find(&filters)
 			for _, filter := range filters {
-				if change.Clan.Language == "French" {
+				if bot.FilterMatch(filter, change.Player, change.Clan) {
 					bot.SendPlayerExitMessage(change.Player, change.Clan, filter.DiscordChannelID)
 				}
 			}
-		}
-	}
-	bot.Logger.Infof("Removing commands...")
-	// // We need to fetch the commands, since deleting requires the command ID.
-	// // We are doing this from the returned commands on line 375, because using
-	// // this will delete all the commands, which might not be desirable, so we
-	// // are deleting only the commands that we added.
-	// registeredCommands, err := s.ApplicationCommands(s.State.User.ID, *GuildID)
-	// if err != nil {
-	// 	log.Fatalf("Could not fetch registered commands: %v", err)
-	// }
+		case <-bot.OSSignal:
+			bot.Logger.Infof("bot received exit signal")
+			bot.Logger.Infof("Removing commands...")
 
-	for _, v := range registeredCommands {
-		err := s.ApplicationCommandDelete(s.State.User.ID, "", v.ID)
-		if err != nil {
-			bot.Logger.Errorf("Cannot delete '%v' command: %v", v.Name, err)
-		}
-	}
-}
-
-func (bot *WowsBot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Ignore all messages created by the bot itself
-	// This isn't required in this specific example but it's a good practice.
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-	// If the message is "ping" reply with "Pong!"
-	if m.Content == "ping" {
-		_, err := s.ChannelMessageSend(m.ChannelID, "Pong!")
-		if err != nil {
-			bot.Logger.Errorf("error sending message,", err)
-		}
-	}
-	bot.Logger.Infof("Channel ID '%s', '%s'", m.ChannelID, m.Content)
-
-	// If the message is "pong" reply with "Ping!"
-	if m.Content == "pong" {
-		_, err := s.ChannelMessageSend(m.ChannelID, "Ping!")
-		if err != nil {
-			bot.Logger.Errorf("error sending message,", err)
+			for _, v := range registeredCommands {
+				err := s.ApplicationCommandDelete(s.State.User.ID, "", v.ID)
+				if err != nil {
+					bot.Logger.Errorf("Cannot delete '%v' command: %v", v.Name, err)
+				}
+			}
+			s.Close()
+			return
 		}
 	}
 }
