@@ -414,6 +414,19 @@ func (ctl *Controller) UpdateClans(clanIDs []int) error {
 	return nil
 }
 
+func (ctl *Controller) ScrapMonitoredClans() (err error) {
+	ctl.Logger.Infof("start scrapping monitored clans")
+	var clans []model.Clan
+	ctl.DB.Where("tracked = true").Find(&clans)
+	var ids []int
+	for _, clan := range clans {
+		ids = append(ids, clan.ID)
+	}
+	err = ctl.UpdateClans(ids)
+	ctl.Logger.Infof("finish scrapping %d monitored clans", len(ids))
+	return err
+}
+
 func (ctl *Controller) ScrapAllClans() (err error) {
 	ctl.Logger.Infof("Start scrapping all clans")
 	page := 1
