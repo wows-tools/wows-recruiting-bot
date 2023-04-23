@@ -47,6 +47,21 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 	return &bot
 }
 
+func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, discordChannelID string) {
+	msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
+		player.Nick,
+		clan.Tag,
+		player.WinRate,
+		player.Battles,
+		player.LastBattleDate.String(),
+		player.ID,
+		player.Nick,
+	)
+
+	bot.Logger.Infof("Sending discord message <%s> on channel '%s'", msg, discordChannelID)
+	bot.Discord.ChannelMessageSend(discordChannelID, msg)
+}
+
 func (bot *WowsBot) StartBot() {
 	for {
 		select {
@@ -55,18 +70,7 @@ func (bot *WowsBot) StartBot() {
 			bot.DB.Find(&filters)
 			for _, filter := range filters {
 				if change.Clan.Language == "French" {
-					msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
-						change.Player.Nick,
-						change.Clan.Tag,
-						change.Player.WinRate,
-						change.Player.Battles,
-						change.Player.LastBattleDate.String(),
-						change.Player.ID,
-						change.Player.Nick,
-					)
-
-					bot.Logger.Infof("Sending discord message <%s> on channel '%s'", msg, change.Player.Nick, change.Clan.Tag, filter.DiscordChannelID)
-					bot.Discord.ChannelMessageSend(filter.DiscordChannelID, msg)
+					bot.SendPlayerExitMessage(change.Player, change.Clan, filter.DiscordChannelID)
 				}
 			}
 		}
