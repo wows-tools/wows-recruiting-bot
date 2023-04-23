@@ -7,7 +7,7 @@ import (
 	"github.com/kakwa/wows-recruiting-bot/model"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-        "gorm.io/gorm/clause"
+	"gorm.io/gorm/clause"
 	"math/rand"
 	"os"
 	"sync"
@@ -24,7 +24,7 @@ type WowsBot struct {
 }
 
 var (
-	integerOptionMinValue          = 0.0
+	integerOptionMinValue = 0.0
 
 	commands = []*discordgo.ApplicationCommand{
 		{
@@ -137,7 +137,7 @@ func NewWowsBot(botToken string, logger *zap.SugaredLogger, db *gorm.DB, playerE
 	bot.OSSignal = botChanOSSig
 
 	bot.CommandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"wows-recruit-test": bot.TestOutput,
+		"wows-recruit-test":       bot.TestOutput,
 		"wows-recruit-set-filter": bot.SetFilter,
 	}
 
