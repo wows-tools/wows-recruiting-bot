@@ -364,8 +364,12 @@ func (backend *Backend) UpdateClans(clanIDs []int) error {
 			var clanPrev model.Clan
 			clanPrev.ID = clan.ID
 			err = backend.DB.Preload("Players").First(&clanPrev).Error
-
 			if err == nil {
+				// If the clan was previously tracked, we need to keep it tracked
+				if clanPrev.Tracked {
+					clan.Tracked = true
+
+				}
 				prevPlayersList := make([]int, len(clanPrev.Players))
 				backend.Logger.Debugf("Clan [%s] already present, computing player diff", clan.Tag)
 				for i, player := range clanPrev.Players {
