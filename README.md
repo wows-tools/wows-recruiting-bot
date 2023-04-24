@@ -56,7 +56,7 @@ To run this bot, you need:
 
 To get a WoWs API key, please refer to [the Wargaming Developer Documentation](https://developers.wargaming.net/documentation/guide/getting-started/)
 
-## Discord bot Token
+## Discord Bot Token
 
 To get a Discord bot token, please refer to [the Discord Developer Portal](https://discord.com/developers/docs/getting-started)
 
@@ -81,4 +81,10 @@ This process recovers all the clans on a given realm/server and can take several
 Be patient.
 
 The bot data are stored in the `wows-recruiting-bot.db` sqlite DB.
+
+## Data updates frequency
+
+Monitored clans are updated every **2 hours**.
+
+All clans (and there players) are updated **once a week**.
 
