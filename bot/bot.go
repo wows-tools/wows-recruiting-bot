@@ -126,7 +126,7 @@ func (bot *WowsBot) TestOutput(s *discordgo.Session, i *discordgo.InteractionCre
 		},
 	})
 	var player model.Player
-	wr := 0.30 + rand.Float64()*0.30
+	wr := 0.45 + rand.Float64()*0.25
 	bot.DB.Where("win_rate > ?", wr).Preload("Clan").Order("win_rate").First(&player)
 	clan := model.Clan{
 		Tag: "TEST",
@@ -435,19 +435,82 @@ func (bot *WowsBot) LoggedInBot(s *discordgo.Session, r *discordgo.Ready) {
 }
 
 func (bot *WowsBot) SendPlayerExitMessage(player model.Player, clan model.Clan, discordChannelID string) {
-	msg := fmt.Sprintf("%s left clan [%s] | WR: %f%% | Battles: %d | T10s: %d | Last Battle: %s | Stats: https://wows-numbers.com/player/%d,%s/",
-		common.Escape(player.Nick),
-		common.Escape(clan.Tag),
-		player.WinRate*100.0,
-		player.Battles,
-		player.NumberT10,
-		player.LastBattleDate.String(),
-		player.ID,
-		player.Nick,
-	)
+	// Calculate win rate color
+	var winRateColor int
+	switch {
+	case player.WinRate < 0.47:
+		winRateColor = 0xff0000 // Red
+	case player.WinRate < 0.49:
+		winRateColor = 0xff8c00 // Orange
+	case player.WinRate < 0.52:
+		winRateColor = 0xffff00 // Yellow
+	case player.WinRate < 0.54:
+		winRateColor = 0x00ff00 // Green
+	case player.WinRate < 0.56:
+		winRateColor = 0x006400 // Dark Green
+	case player.WinRate < 0.60:
+		winRateColor = 0x00FFFF // Cyan
+	default:
+		winRateColor = 0x800080 // Purple
+	}
 
-	bot.Logger.Infof("Sending discord message <%s> on channel '%s'", msg, discordChannelID)
-	bot.Discord.ChannelMessageSend(discordChannelID, msg)
+	// Construct message embed
+	embed := &discordgo.MessageEmbed{
+		Title: fmt.Sprintf("Player '%s' has left [%s]", common.Escape(player.Nick), common.Escape(clan.Tag)),
+		Color: winRateColor,
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "Player",
+				Value:  fmt.Sprintf("%s", common.Escape(player.Nick)),
+				Inline: true,
+			},
+			{
+				Name:   "Win Rate",
+				Value:  fmt.Sprintf("%.2f%%", player.WinRate*100),
+				Inline: true,
+			},
+			{
+				Name:   "Battles",
+				Value:  fmt.Sprintf("%d", player.Battles),
+				Inline: true,
+			},
+			{
+				Name:   "T10s",
+				Value:  fmt.Sprintf("%d", player.NumberT10),
+				Inline: true,
+			},
+			{
+				Name:   "Last Battle",
+				Value:  player.LastBattleDate.Format("2006-01-02"),
+				Inline: true,
+			},
+			{
+				Name:   "Stats",
+				Value:  fmt.Sprintf("https://wows-numbers.com/player/%d,%s/", player.ID, player.Nick),
+				Inline: true,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "What is your opinion about this player?",
+		},
+	}
+
+	// Send message and get message ID
+	sentMessage, err := bot.Discord.ChannelMessageSendEmbed(discordChannelID, embed)
+	if err != nil {
+		bot.Logger.Errorf("Error sending discord message: %v", err)
+		return
+	}
+	messageID := sentMessage.ID
+
+	// Add reaction icons as poll options
+	for _, emoji := range []string{"❌", "\u2754", "✅", "🎯"} {
+		if err := bot.Discord.MessageReactionAdd(discordChannelID, messageID, emoji); err != nil {
+			bot.Logger.Errorf("Error adding reaction to message: %v", err)
+		}
+	}
+
+	bot.Logger.Infof("Sent discord message <%s> on channel '%s'", embed.Title, discordChannelID)
 }
 
 func (bot *WowsBot) FilterMatch(filter model.Filter, player model.Player, clan model.Clan) bool {
