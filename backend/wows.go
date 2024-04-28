@@ -431,6 +431,10 @@ func (backend *Backend) ScrapMonitoredClans() (err error) {
 		ids = append(ids, clan.ID)
 	}
 	err = backend.UpdateClans(ids)
+	if err != nil {
+		backend.Logger.Errorf("error when scanning clans: %s", err.Error())
+		return err
+	}
 	backend.Logger.Infof("finish scrapping %d monitored clans", len(ids))
 	return err
 }
@@ -445,7 +449,10 @@ func (backend *Backend) ScrapAllClans() (err error) {
 			return err
 		}
 
-		backend.UpdateClans(clanIDs)
+		err = backend.UpdateClans(clanIDs)
+		if err != nil {
+			backend.Logger.Errorf("error when scanning clans: %s", err.Error())
+		}
 
 		backend.Logger.Infof("Finish scrapping clan page [%d]", page)
 		if len(clanIDs) < 100 {
