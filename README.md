@@ -86,5 +86,5 @@ The bot data are stored in the `wows-recruiting-bot.db` sqlite DB.
 
 Monitored clans are updated every **2 hours**.
 
-All clans (and theirplayers) are updated **once a week**.
+All clans (and their players) are updated **once a week**.
 
